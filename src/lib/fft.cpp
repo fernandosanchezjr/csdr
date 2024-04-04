@@ -18,8 +18,10 @@ along with libcsdr.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 #include "fft.hpp"
+#include "vkfft.hpp"
 
 #include <cstring>
+#include <iostream>
 
 using namespace Csdr;
 
@@ -28,6 +30,7 @@ Fft::Fft(unsigned int fftSize, unsigned int everyNSamples, Window* window): fftS
     output_buffer = (complex<float>*) malloc(sizeof(complex<float>) * fftSize);
     plan = fftwf_plan_dft_1d(fftSize, (fftwf_complex*) windowed, (fftwf_complex*) output_buffer, FFTW_FORWARD, FFTW_ESTIMATE);
     this->window = window->precalculate(fftSize);
+    vkBackend = new VkFFTBackend(fftSize);
 }
 
 Fft::~Fft() {
@@ -35,6 +38,7 @@ Fft::~Fft() {
     free(output_buffer);
     delete window;
     fftwf_destroy_plan(plan);
+    delete vkBackend;
 }
 
 bool Fft::canProcess() {
@@ -62,7 +66,14 @@ void Fft::process() {
             } else {
                 memcpy(windowed, reader->getReadPointer(), fftSize);
             }
-            fftwf_execute(plan);
+            if (vkBackend->isReady()) {
+                VkFFTResult  res = vkBackend->fft((fftwf_complex*)windowed, (fftwf_complex*)output_buffer, -1);
+                if (res != VKFFT_SUCCESS) {
+                    std::cerr << "vkfft failed " << res << "\n";
+                }
+            } else {
+                fftwf_execute(plan);
+            }
             std::memcpy(writer->getWritePointer(), output_buffer, sizeof(complex<float>) * fftSize);
             writer->advance(fftSize);
 
